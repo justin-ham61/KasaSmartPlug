@@ -36,12 +36,18 @@ If not, see <https://www.gnu.org/licenses/>.
 #define KASA_ENCRYPTED_KEY 171
 #define MAX_PLUG_ALLOW 10
 
+//Smart Plug Class
 class KASASmartPlug
 {
 private:
+    //Holds to information:
+        //sockaddr_in = endpoint address where the socket is bound
+        // dest_addr = variable type for sockaddr_in   
     struct sockaddr_in dest_addr;
+
+    //Semaphore for multitreaded processes where xSemaphoreGive and xSemaphoreTake allows for processes to reliquish and give resources
     static SemaphoreHandle_t mutex;
-    StaticJsonDocument<512> doc;
+    StaticJsonDocument<1024> doc;
 
 protected:
     int sock;
@@ -109,15 +115,14 @@ protected:
         return false;
 
     }
-    void CloseSock()
-    {
-        if (sock != -1)
-        {
+    void CloseSock() {
+        if (sock != -1) {
             shutdown(sock, 0);
             close(sock);
             sock = -1;
         }
     }
+
     void DebugBufferPrint(char *data, int length);
     void SendCommand(const char *cmd);
     int Query(const char *cmd, char *buffer, int bufferLength, long timeout);
@@ -132,16 +137,19 @@ public:
     int QueryInfo();
 
     void SetRelayState(uint8_t state);
-    void UpdateIPAddress(const char *ip)
-    {
+
+
+    //Sets the destination addess struct to the necessary values given the IP Address
+    void UpdateIPAddress(const char *ip) {
         strcpy(ip_address, ip);
         sock = -1;
         dest_addr.sin_addr.s_addr = inet_addr(ip_address);
         dest_addr.sin_family = AF_INET;
         dest_addr.sin_port = htons(9999);
     }
-    KASASmartPlug(const char *name, const char *ip)
-    {
+
+    //Constructor for KASA Smart Plug
+    KASASmartPlug(const char *name, const char *ip){
         strcpy(alias, name);
         UpdateIPAddress(ip);
         err_code = 0;
@@ -149,9 +157,21 @@ public:
     }
 };
 
+class KASALight{
+    private:
+    struct sockaddr_in dest_addr;
+    static SemaphoreHandle_t mutex;
+    StaticJsonDocument<2048> doc;
+
+    protected:
+    int sock;
+};
+
 class KASAUtil
 {
 private:
+
+    //Array of pluts initialized to the size MAX_PLUG_ALLOW
     KASASmartPlug *ptr_plugs[MAX_PLUG_ALLOW];
     void closeSock(int sock);
     int IsContainPlug(const char *name);
@@ -165,6 +185,8 @@ public:
     static const char *get_kasa_info;
     static const char *relay_on;
     static const char *relay_off;
+    static const char *light_on;
+    static const char *light_off;
 
     int ScanDevices(int timeoutMs = 1000); // Wait at least xxx ms after received UDP packages..
     static uint16_t Encrypt(const char *data, int length, uint8_t addLengthByte, char *encryped_data);
@@ -173,5 +195,7 @@ public:
     KASASmartPlug *GetSmartPlugByIndex(int index);
     KASAUtil();
 };
+
+
 
 #endif

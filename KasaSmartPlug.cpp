@@ -8,7 +8,9 @@
 const char *KASAUtil::get_kasa_info = "{\"system\":{\"get_sysinfo\":null}}";
 const char *KASAUtil::relay_on = "{\"system\":{\"set_relay_state\":{\"state\":1}}}";
 const char *KASAUtil::relay_off = "{\"system\":{\"set_relay_state\":{\"state\":0}}}";
-
+const char *KASAUtil::light_on = "{\"smartlife.iot.smartbulb.lightingservice\": {\"transition_light_state\": {\"on_off\": 1}}}";
+const char *KASAUtil::light_off = "{\"smartlife.iot.smartbulb.lightingservice\": {\"transition_light_state\": {\"on_off\": 0}}}";
+//Encryption meathod for payload json
 uint16_t KASAUtil::Encrypt(const char *data, int length, uint8_t addLengthByte, char *encryped_data)
 {
     uint8_t key = KASA_ENCRYPTED_KEY;
@@ -78,7 +80,7 @@ int KASAUtil::ScanDevices(int timeoutMs)
     const char *model;
     int relay_state;
 
-    StaticJsonDocument<512> doc;
+    StaticJsonDocument<2048> doc;
 
     len = strlen(get_kasa_info);
 
@@ -165,7 +167,7 @@ int KASAUtil::ScanDevices(int timeoutMs)
             if (FD_ISSET(sock, &rfds))
             {
                 // Incoming datagram received
-                char recvbuf[1024];
+                char recvbuf[2048];
                 char raddr_name[32] = {0};
 
                 struct sockaddr_storage raddr; // Large enough for both IPv4 or IPv6
@@ -199,6 +201,8 @@ int KASAUtil::ScanDevices(int timeoutMs)
                 if (len > 500)
                 {
                     Serial.println("Parsing info...");
+                    Serial.print("Currect recvbuf: ");
+                    Serial.println(recvbuf);
                     DeserializationError error = deserializeJson(doc, recvbuf, len);
 
                     if (error)
@@ -410,6 +414,7 @@ int KASASmartPlug::Query(const char *cmd, char *buffer, int bufferLength, long t
     xSemaphoreGive(mutex);
     return recvLen;
 }
+
 int KASASmartPlug::QueryInfo()
 {
     char buffer[1024];
@@ -445,6 +450,10 @@ int KASASmartPlug::QueryInfo()
 
 void KASASmartPlug::SetRelayState(uint8_t state)
 {
+    //test for turning on light bulbs with current framework
+    if (state == 2){
+        SendCommand(KASAUtil::light_on);
+    }
     if (state > 0)
     {
         SendCommand(KASAUtil::relay_on);
@@ -452,6 +461,7 @@ void KASASmartPlug::SetRelayState(uint8_t state)
     else
         SendCommand(KASAUtil::relay_off);
 }
+
 void KASASmartPlug::DebugBufferPrint(char *data, int length)
 {
     for (int i = 0; i < length; i++)
