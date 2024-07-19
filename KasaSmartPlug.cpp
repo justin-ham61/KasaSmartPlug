@@ -78,7 +78,7 @@ int KASAUtil::ScanDevices(int timeoutMs)
     int len;
     const char *string_value;
     const char *model;
-    int relay_state;
+    int state;
 
     StaticJsonDocument<2048> doc;
 
@@ -214,38 +214,38 @@ int KASAUtil::ScanDevices(int timeoutMs)
                     {
                         JsonObject get_sysinfo = doc["system"]["get_sysinfo"];
                         string_value = get_sysinfo["alias"];
-                        relay_state = get_sysinfo["relay_state"];
-                        model = get_sysinfo["model"];
-
-                        if (!IsStartWith("HS",model) && !IsStartWith("KP",model))
-                        {
-                            Serial.println("Found a valid Kasa Device, but we don't know if it works with this library just yet. You are in unprecedented territory, proceed with caution.");    
-                        }
-                        
+                        model = get_sysinfo["model"];                       
                         // Limit the number of devices and make sure no duplicate device.
-                        if (IsContainPlug(string_value) == -1)
-                        {
+                        if (IsContainPlug(string_value) == -1){
                             // New device has been found
-                            if (deviceFound < MAX_PLUG_ALLOW)
-                            {
-                                ptr_plugs[deviceFound] = new KASASmartPlug(string_value, raddr_name);
-                                ptr_plugs[deviceFound]->state = relay_state;
-                                strcpy(ptr_plugs[deviceFound]->model, model);
-                                deviceFound++;
-                            } else 
-                            {
+                            if (deviceFound < MAX_PLUG_ALLOW) {
+                                //Case if the model is a smart plug "ES", "HS", "KP"
+                                //Case if the model is a light device
+                                if(IsStartWith("KL", model)){
+                                    state = get_sysinfo["light_state"]["on_off"];
+                                    int brightness = get_sysinfo["light_state"]["brightness"];
+                                    int temp = get_sysinfo["light_state"]["color_temp"];
+                                    ptr_plugs[deviceFound] = new KASASmartBulb(string_value, raddr_name, brightness, temp);
+                                    strcpy(ptr_plugs[deviceFound]->model, model);
+                                    deviceFound++;
+                                //Case if the found model does not match any known model
+                                } else {
+                                    state = get_sysinfo["relay_state"];
+                                    ptr_plugs[deviceFound] = new KASASmartPlug(string_value, raddr_name);    
+                                    strcpy(ptr_plugs[deviceFound]->model, model);
+                                    deviceFound++;
+                                }
+                            } else {
                                 Serial.printf("\r\n Error unable to add more plug");
                             }
-                        }else 
-                        {
+                        } else {
                             //Plug is already in the collection then update IP Address..
-                            KASASmartPlug *plug = KASAUtil::GetSmartPlug(string_value);
-                            if(plug != NULL)
-                            {
-                                plug->UpdateIPAddress(raddr_name);
+                            KASADevice *device = KASAUtil::GetSmartPlug(string_value);
+                            if(device != NULL){
+                                device->UpdateIPAddress(raddr_name);
                             }
                         }
-                        
+                    
                     }
                 }
             }
@@ -290,7 +290,7 @@ int KASAUtil::ScanDevices(int timeoutMs)
 int KASAUtil::IsContainPlug(const char *name)
 {
     int i;
-    KASASmartPlug *plug;
+    KASADevice *plug;
     if (deviceFound == 0)
         return -1;
     for (i = 0; i < deviceFound; i++)
@@ -298,13 +298,12 @@ int KASAUtil::IsContainPlug(const char *name)
         if (strcmp(name, ptr_plugs[i]->alias) == 0)
             return i;
     }
-
     return -1;
 }
 
-SemaphoreHandle_t KASASmartPlug::mutex = xSemaphoreCreateMutex();
+SemaphoreHandle_t KASADevice::mutex = xSemaphoreCreateMutex();
 
-KASASmartPlug *KASAUtil::GetSmartPlugByIndex(int index)
+KASADevice *KASAUtil::GetSmartPlugByIndex(int index)
 {
     if (index < -0)
         return NULL;
@@ -317,7 +316,7 @@ KASASmartPlug *KASAUtil::GetSmartPlugByIndex(int index)
         return NULL;
 }
 
-KASASmartPlug *KASAUtil::GetSmartPlug(const char *alias_name)
+KASADevice *KASAUtil::GetSmartPlug(const char *alias_name)
 {
     for (int i = 0; i < deviceFound; i++)
     {
@@ -327,7 +326,7 @@ KASASmartPlug *KASAUtil::GetSmartPlug(const char *alias_name)
     return NULL;
 }
 
-void KASASmartPlug::SendCommand(const char *cmd)
+void KASADevice::SendCommand(const char *cmd)
 {
     int err;
     char sendbuf[128];
@@ -346,73 +345,6 @@ void KASASmartPlug::SendCommand(const char *cmd)
     vTaskDelay(10 / portTICK_PERIOD_MS); // Make sure the data has been send out before close the socket.
     CloseSock();
     xSemaphoreGive(mutex);
-}
-
-int KASASmartPlug::Query(const char *cmd, char *buffer, int bufferLength, long timeout)
-{
-    int sendLen;
-    int recvLen;
-    int err;
-    xSemaphoreTake(mutex, portMAX_DELAY);
-    recvLen = 0;
-    err = 0;
-    OpenSock();
-    sendLen = KASAUtil::Encrypt(cmd, strlen(cmd), 1, buffer);
-    if (sock > 0)
-    {
-        err = send(sock, buffer, sendLen, 0);
-        vTaskDelay(10 / portTICK_PERIOD_MS);
-    }
-    else
-    {
-        CloseSock();
-        xSemaphoreGive(mutex);
-        return 0;
-    }
-
-    struct timeval tv = {
-        .tv_sec = 0,
-        .tv_usec = timeout,
-    };
-    fd_set rfds;
-    FD_ZERO(&rfds);
-    FD_SET(sock, &rfds);
-
-    int s = select(sock + 1, &rfds, NULL, NULL, &tv);
-    // xSemaphoreTake(mutex, portMAX_DELAY);
-    if (s < 0)
-    {
-        Serial.printf("Select failed: errno %d", errno);
-        err = -1;
-        CloseSock();
-        xSemaphoreGive(mutex);
-        return 0;
-    }
-    else if (s > 0)
-    {
-
-        if (FD_ISSET(sock, &rfds))
-        {
-            // We got response here.
-            recvLen = recv(sock, buffer, bufferLength, 0);
-
-            if (recvLen > 0)
-            {
-                recvLen = KASAUtil::Decrypt(buffer, recvLen, buffer, 4);
-            }
-        }
-    }
-    else if (s == 0)
-    {
-        Serial.println("Error TCP Read timeout...");
-        CloseSock();
-        xSemaphoreGive(mutex);
-        return 0;
-    }
-
-    CloseSock();
-    xSemaphoreGive(mutex);
-    return recvLen;
 }
 
 int KASASmartPlug::QueryInfo()
@@ -473,4 +405,106 @@ void KASASmartPlug::DebugBufferPrint(char *data, int length)
 
         Serial.printf("%d ", data[i]);
     }
+}
+
+
+
+//Device Definition
+int KASADevice::Query(const char*cmd, char *buffer, int bufferLength, long timeout){
+    int sendLen;
+    int recvLen;
+    int err;
+    xSemaphoreTake(mutex, portMAX_DELAY);
+    recvLen = 0;
+    err = 0;
+    OpenSock();
+    sendLen = KASAUtil::Encrypt(cmd, strlen(cmd), 1, buffer);
+    
+    //If sock is able to connect
+    if(sock > 0){
+        err = send(sock, buffer, sendLen, 0);
+        vTaskDelay(10 / portTICK_PERIOD_MS);
+    //If sock is unable to connect, close socket and return
+    } else {
+        CloseSock();
+        xSemaphoreGive(mutex);
+        return 0;
+    }
+
+    struct timeval tv = {
+        .tv_sec = 0,
+        .tv_usec = timeout,
+    };
+
+    fd_set rfds;
+    FD_ZERO(&rfds);
+    FD_SET(sock, &rfds);
+
+    int s = select(sock + 1, &rfds, NULL, NULL, &tv);
+
+    if(s < 0){
+        Serial.printf("Select failed");
+        err = -1;
+        CloseSock();
+        xSemaphoreGive(mutex);
+        return 0;
+    } else if (s > 0){
+        if (FD_ISSET(sock, &rfds)){
+            recvLen = recv(sock,buffer, bufferLength, 0);
+            if (recvLen > 0){
+                recvLen = KASAUtil::Decrypt(buffer, recvLen, buffer, 4);
+            }
+        }
+    } else if (s == 0){
+        Serial.println("Error TCP Read Timeout...");
+        CloseSock();
+        xSemaphoreGive(mutex);
+        return 0;
+    }
+    CloseSock();
+    xSemaphoreGive(mutex);
+    return recvLen;
+}
+
+//Bulb Definitions
+void KASASmartBulb::turnOn(){
+    SendCommand(KASAUtil::light_on);
+}
+
+void KASASmartBulb::turnOff(){
+    SendCommand(KASAUtil::light_off);
+}
+
+void KASASmartBulb::toggle(){
+    if(state == 0){
+        Serial.println("Toggling On");
+        turnOn();
+    } else {
+        Serial.println("Toggling Off");
+        turnOff();
+    }
+}
+
+int KASASmartBulb::GetDeviceInfo(){
+    char buffer[2048];
+    int recvLen = Query(KASAUtil::get_kasa_info, buffer, 2048, 300000);
+    if(recvLen > 500){
+        xSemaphoreTake(mutex, portMAX_DELAY);
+        DeserializationError error = deserializeJson(doc, buffer, recvLen);
+
+        if(error){
+            Serial.print("deserializeJson() failed: ");
+            Serial.println(error.c_str());
+            recvLen = -1;
+        } else {
+            JsonObject get_sysinfo = doc["system"]["get_sysinfo"];
+            state = get_sysinfo["light_state"]["on_off"];
+            brightness = get_sysinfo["light_state"]["brightness"];
+            temp = get_sysinfo["light_state"]["color_temp"];
+            err_code = get_sysinfo["err_code"];
+            strcpy(alias, get_sysinfo["alias"]);
+        }
+        xSemaphoreGive(mutex);
+    }
+    return recvLen;
 }

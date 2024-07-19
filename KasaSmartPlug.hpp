@@ -36,111 +36,81 @@ If not, see <https://www.gnu.org/licenses/>.
 #define KASA_ENCRYPTED_KEY 171
 #define MAX_PLUG_ALLOW 10
 
-//Smart Plug Class
-class KASASmartPlug
-{
-private:
-    //Holds to information:
-        //sockaddr_in = endpoint address where the socket is bound
-        // dest_addr = variable type for sockaddr_in   
+class KASADevice{
+    protected:
+    int sock;
     struct sockaddr_in dest_addr;
-
-    //Semaphore for multitreaded processes where xSemaphoreGive and xSemaphoreTake allows for processes to reliquish and give resources
     static SemaphoreHandle_t mutex;
     StaticJsonDocument<1024> doc;
-
-protected:
-    int sock;
-    /*
-        @brief Open the TCP Client socket
-    */
-    bool OpenSock()
-    {
+    
+    bool OpenSock(){
         int err;
         sock = socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
 
         fd_set fdset;
         struct timeval tv;
         int arg;
-        
-        if(sock<0)
-        {
-            Serial.println("Error unable to open socket...");
+
+        if(sock < 0){
+            Serial.println("Error: Failed to open a socket for Device");
             return false;
         }
 
-        // Using non blocking connect
         arg = fcntl(sock, F_GETFL, NULL);
         arg |= O_NONBLOCK;
 
         fcntl(sock, F_SETFL, O_NONBLOCK);
 
         err = connect(sock, (struct sockaddr *)&dest_addr, sizeof(dest_addr));
-        if (err < 0)
-        {
-            do
-            {
+        if(err < 0){
+            do{
                 tv.tv_sec = 1;
                 tv.tv_usec = 0;
                 FD_ZERO(&fdset);
-                FD_SET(sock,&fdset);
+                FD_SET(sock, &fdset);
 
-                // Set connect timeout to 1 sec.
                 err = select(sock + 1, NULL, &fdset, NULL, &tv);
-                if(err < 0 && errno != EINTR)
-                {
-                    Serial.println("Unable to open sock");
+                if(err < 0 && errno != EINTR){
+                    Serial.println("Unable to open socket");
                     break;
                 }
-                
-                if (err == 1)
-                {
+                if(err == 1){
                     int so_error = 0;
                     socklen_t len = sizeof so_error;
-
                     getsockopt(sock, SOL_SOCKET, SO_ERROR, &so_error, &len);
-                    if (so_error == 0)
-                    {
-                        // arg &= (~O_NONBLOCK);
+                    if (so_error == 0){
                         fcntl(sock, F_SETFL, arg);
                         return true;
-                    } else 
-                    break;
+                    } else {
+                        break;
+                    }
                 }
             } while(1);
         }
-        Serial.println("Error can not open sock...");
+        Serial.println("Error: Failed to open socket for Device");
         CloseSock();
-
         return false;
-
     }
-    void CloseSock() {
-        if (sock != -1) {
+
+    void CloseSock(){
+        if(sock != -1){
             shutdown(sock, 0);
             close(sock);
             sock = -1;
         }
     }
 
-    void DebugBufferPrint(char *data, int length);
     void SendCommand(const char *cmd);
-    int Query(const char *cmd, char *buffer, int bufferLength, long timeout);
+    int Query(const char*cmd, char *buffer, int bufferLength, long timeout);
 
-public:
+    public:
     char alias[32];
     char ip_address[32];
     char model[15];
     int state;
     int err_code;
 
-    int QueryInfo();
-
-    void SetRelayState(uint8_t state);
-
-
-    //Sets the destination addess struct to the necessary values given the IP Address
-    void UpdateIPAddress(const char *ip) {
+    void UpdateIPAddress(const char *ip){
         strcpy(ip_address, ip);
         sock = -1;
         dest_addr.sin_addr.s_addr = inet_addr(ip_address);
@@ -148,31 +118,63 @@ public:
         dest_addr.sin_port = htons(9999);
     }
 
-    //Constructor for KASA Smart Plug
-    KASASmartPlug(const char *name, const char *ip){
+    KASADevice(const char *name , const char *ip){
         strcpy(alias, name);
         UpdateIPAddress(ip);
         err_code = 0;
         xSemaphoreGive(mutex);
     }
+
+    virtual ~KASADevice(){}
+
+    virtual const char* getType() {
+        return "KASADevice";
+    }
 };
 
-class KASALight{
-    private:
-    struct sockaddr_in dest_addr;
-    static SemaphoreHandle_t mutex;
-    StaticJsonDocument<2048> doc;
+class KASASmartBulb: public KASADevice{
+    public:
+    int brightness;
+    int temp;
+    int GetDeviceInfo();
 
+    void turnOn();
+    void turnOff();
+    void toggle();
+
+    KASASmartBulb(const char *name, const char *ip, int brightness, int temp)
+        :KASADevice(name, ip), brightness(brightness), temp(temp){}
+
+    virtual const char* getType() override{
+        return "KASASmartBulb";
+    }
+};
+
+//Smart Plug Class
+class KASASmartPlug: public KASADevice{
     protected:
-    int sock;
+    void DebugBufferPrint(char *data, int length);
+
+    public:
+
+    int QueryInfo();
+    void SetRelayState(uint8_t state);
+
+    //Constructor for KASA Smart Plug
+    KASASmartPlug(const char *name, const char *ip)
+        :KASADevice(name, ip){}
+
+    virtual const char* getType() override {
+        return "KASASmartPlug";
+    }
 };
 
 class KASAUtil
 {
-private:
 
+private:
     //Array of pluts initialized to the size MAX_PLUG_ALLOW
-    KASASmartPlug *ptr_plugs[MAX_PLUG_ALLOW];
+    KASADevice *ptr_plugs[MAX_PLUG_ALLOW];
     void closeSock(int sock);
     int IsContainPlug(const char *name);
     int IsStartWith(const char *prefix, const char *model)
@@ -191,8 +193,8 @@ public:
     int ScanDevices(int timeoutMs = 1000); // Wait at least xxx ms after received UDP packages..
     static uint16_t Encrypt(const char *data, int length, uint8_t addLengthByte, char *encryped_data);
     static uint16_t Decrypt(char *data, int length, char *decryped_data, int startIndex);
-    KASASmartPlug *GetSmartPlug(const char *alias_name);
-    KASASmartPlug *GetSmartPlugByIndex(int index);
+    KASADevice *GetSmartPlug(const char *alias_name);
+    KASADevice *GetSmartPlugByIndex(int index);
     KASAUtil();
 };
 
