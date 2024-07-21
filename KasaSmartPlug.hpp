@@ -100,7 +100,6 @@ class KASADevice{
         }
     }
 
-    void SendCommand(const char *cmd);
     int Query(const char*cmd, char *buffer, int bufferLength, long timeout);
 
     public:
@@ -109,6 +108,9 @@ class KASADevice{
     char model[15];
     int state;
     int err_code;
+
+
+    void SendCommand(const char *cmd);
 
     void UpdateIPAddress(const char *ip){
         strcpy(ip_address, ip);
@@ -141,6 +143,8 @@ class KASASmartBulb: public KASADevice{
     void turnOn();
     void turnOff();
     void toggle();
+    void setBrightness();
+    void setTemperature();
 
     KASASmartBulb(const char *name, const char *ip, int brightness, int temp)
         :KASADevice(name, ip), brightness(brightness), temp(temp){}
@@ -169,10 +173,9 @@ class KASASmartPlug: public KASADevice{
     }
 };
 
-class KASAUtil
-{
+class KASAUtil {
 
-private:
+    private:
     //Array of pluts initialized to the size MAX_PLUG_ALLOW
     KASADevice *ptr_plugs[MAX_PLUG_ALLOW];
     void closeSock(int sock);
@@ -189,10 +192,13 @@ public:
     static const char *relay_off;
     static const char *light_on;
     static const char *light_off;
+    static const char* set_brightness;
+    static const char* set_temperature;
 
     int ScanDevices(int timeoutMs = 1000); // Wait at least xxx ms after received UDP packages..
     static uint16_t Encrypt(const char *data, int length, uint8_t addLengthByte, char *encryped_data);
     static uint16_t Decrypt(char *data, int length, char *decryped_data, int startIndex);
+    void CreateAndDeliver(const char *ip, const int req, const char *type);
     KASADevice *GetSmartPlug(const char *alias_name);
     KASADevice *GetSmartPlugByIndex(int index);
     KASAUtil();

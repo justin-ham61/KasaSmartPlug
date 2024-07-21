@@ -4,12 +4,16 @@
 // could not go to work. I feel bored so I started writing this library.
 
 #include "KasaSmartPlug.hpp"
+#include <string>
 
 const char *KASAUtil::get_kasa_info = "{\"system\":{\"get_sysinfo\":null}}";
 const char *KASAUtil::relay_on = "{\"system\":{\"set_relay_state\":{\"state\":1}}}";
 const char *KASAUtil::relay_off = "{\"system\":{\"set_relay_state\":{\"state\":0}}}";
 const char *KASAUtil::light_on = "{\"smartlife.iot.smartbulb.lightingservice\": {\"transition_light_state\": {\"on_off\": 1}}}";
 const char *KASAUtil::light_off = "{\"smartlife.iot.smartbulb.lightingservice\": {\"transition_light_state\": {\"on_off\": 0}}}";
+const char *KASAUtil::set_brightness = "{\"smartlife.iot.smartbulb.lightingservice\": {\"transition_light_state\": {\"brightness\": ";
+const char *KASAUtil::set_temperature = "{\"smartlife.iot.smartbulb.lightingservice\": {\"transition_light_state\": {\"color_temp\": ";
+const char *KASAUtil::query_end = "}}}";
 //Encryption meathod for payload json
 uint16_t KASAUtil::Encrypt(const char *data, int length, uint8_t addLengthByte, char *encryped_data)
 {
@@ -301,6 +305,17 @@ int KASAUtil::IsContainPlug(const char *name)
     return -1;
 }
 
+void KASAUtil::CreateAndDeliver(const char *ip, const int req, const char *type){
+    if(strcmp(type, "bulb") == 0){
+        KASASmartBulb device("temp", ip, 0, 0);
+        if(req == 0){
+            device.SendCommand(KASAUtil::light_off);
+        } else {
+            device.SendCommand(KASAUtil::light_on);
+        }
+    }
+}
+
 SemaphoreHandle_t KASADevice::mutex = xSemaphoreCreateMutex();
 
 KASADevice *KASAUtil::GetSmartPlugByIndex(int index)
@@ -473,6 +488,13 @@ void KASASmartBulb::turnOn(){
 
 void KASASmartBulb::turnOff(){
     SendCommand(KASAUtil::light_off);
+}
+
+void KASASmartBulb::setBrightness(brightness){
+    std::string brightness_str = std::to_string(brightness);
+
+    char* request[] = KASAUtil::set_brightness + brightness_str + KASAUtil::query_end;
+    SendCommand(request);
 }
 
 void KASASmartBulb::toggle(){
