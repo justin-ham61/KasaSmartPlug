@@ -32,6 +32,7 @@ If not, see <https://www.gnu.org/licenses/>.
 #include "lwip/sys.h"
 
 #include <ArduinoJson.h>
+#include <set>
 
 #define KASA_ENCRYPTED_KEY 171
 #define MAX_PLUG_ALLOW 10
@@ -41,7 +42,7 @@ class KASADevice{
     int sock;
     struct sockaddr_in dest_addr;
     static SemaphoreHandle_t mutex;
-    StaticJsonDocument<1024> doc;
+    StaticJsonDocument<2048> doc;
     
     bool OpenSock(){
         int err;
@@ -143,8 +144,6 @@ class KASASmartBulb: public KASADevice{
     void turnOn();
     void turnOff();
     void toggle();
-    void setBrightness();
-    void setTemperature();
 
     KASASmartBulb(const char *name, const char *ip, int brightness, int temp)
         :KASADevice(name, ip), brightness(brightness), temp(temp){}
@@ -178,6 +177,7 @@ class KASAUtil {
     private:
     //Array of pluts initialized to the size MAX_PLUG_ALLOW
     KASADevice *ptr_plugs[MAX_PLUG_ALLOW];
+
     void closeSock(int sock);
     int IsContainPlug(const char *name);
     int IsStartWith(const char *prefix, const char *model)
@@ -194,11 +194,14 @@ public:
     static const char *light_off;
     static const char* set_brightness;
     static const char* set_temperature;
+    static const char* query_end;
 
     int ScanDevices(int timeoutMs = 1000); // Wait at least xxx ms after received UDP packages..
     static uint16_t Encrypt(const char *data, int length, uint8_t addLengthByte, char *encryped_data);
     static uint16_t Decrypt(char *data, int length, char *decryped_data, int startIndex);
     void CreateAndDeliver(const char *ip, const int req, const char *type);
+    bool CreateDevice(const char *alias, const char *ip, const char *type);
+    void ToggleAll(const int state);
     KASADevice *GetSmartPlug(const char *alias_name);
     KASADevice *GetSmartPlugByIndex(int index);
     KASAUtil();

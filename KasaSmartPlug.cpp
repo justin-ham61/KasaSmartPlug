@@ -5,6 +5,7 @@
 
 #include "KasaSmartPlug.hpp"
 #include <string>
+#include <set>
 
 const char *KASAUtil::get_kasa_info = "{\"system\":{\"get_sysinfo\":null}}";
 const char *KASAUtil::relay_on = "{\"system\":{\"set_relay_state\":{\"state\":1}}}";
@@ -14,6 +15,7 @@ const char *KASAUtil::light_off = "{\"smartlife.iot.smartbulb.lightingservice\":
 const char *KASAUtil::set_brightness = "{\"smartlife.iot.smartbulb.lightingservice\": {\"transition_light_state\": {\"brightness\": ";
 const char *KASAUtil::set_temperature = "{\"smartlife.iot.smartbulb.lightingservice\": {\"transition_light_state\": {\"color_temp\": ";
 const char *KASAUtil::query_end = "}}}";
+
 //Encryption meathod for payload json
 uint16_t KASAUtil::Encrypt(const char *data, int length, uint8_t addLengthByte, char *encryped_data)
 {
@@ -83,7 +85,6 @@ int KASAUtil::ScanDevices(int timeoutMs)
     const char *string_value;
     const char *model;
     int state;
-
     StaticJsonDocument<2048> doc;
 
     len = strlen(get_kasa_info);
@@ -91,7 +92,6 @@ int KASAUtil::ScanDevices(int timeoutMs)
     dest_addr.sin_addr.s_addr = inet_addr("255.255.255.255");
     dest_addr.sin_family = AF_INET;
     dest_addr.sin_port = htons(9999);
-
     //Clean up the previous resource
     if(deviceFound > 0)
     {
@@ -218,7 +218,7 @@ int KASAUtil::ScanDevices(int timeoutMs)
                     {
                         JsonObject get_sysinfo = doc["system"]["get_sysinfo"];
                         string_value = get_sysinfo["alias"];
-                        model = get_sysinfo["model"];                       
+                        model = get_sysinfo["model"];                    
                         // Limit the number of devices and make sure no duplicate device.
                         if (IsContainPlug(string_value) == -1){
                             // New device has been found
@@ -316,6 +316,42 @@ void KASAUtil::CreateAndDeliver(const char *ip, const int req, const char *type)
     }
 }
 
+bool KASAUtil::CreateDevice(const char *alias, const char *ip, const char *type){
+    //Create bulb type 
+    if(strcmp(type, "bulb") == 0){
+        KASASmartBulb* bulb = new KASASmartBulb(alias, ip, 0, 2700);
+        int updateResult = 0;
+        if(updateResult == -1){
+            return false;
+        } else {
+            Serial.print("Added: ");
+            Serial.println(bulb->alias);
+            ptr_plugs[deviceFound] = bulb;
+            deviceFound++;
+        }
+    } else if (strcmp(type, "plug") == 0){
+        return true;
+    } else {
+        return false;
+    }
+    return true;
+}
+
+void KASAUtil::ToggleAll(const int state){
+    Serial.println(deviceFound);
+    for(int i = 0; i < deviceFound; i++){
+        Serial.println(i);
+        KASADevice* dev = ptr_plugs[i];
+        KASASmartBulb* bulb = static_cast<KASASmartBulb*>(dev);
+        Serial.println(bulb->alias);
+        if(state == 0){
+            bulb->turnOn(); 
+        } else {
+            bulb->turnOff();
+        }
+    }
+}
+
 SemaphoreHandle_t KASADevice::mutex = xSemaphoreCreateMutex();
 
 KASADevice *KASAUtil::GetSmartPlugByIndex(int index)
@@ -330,6 +366,7 @@ KASADevice *KASAUtil::GetSmartPlugByIndex(int index)
     else
         return NULL;
 }
+
 
 KASADevice *KASAUtil::GetSmartPlug(const char *alias_name)
 {
@@ -357,6 +394,8 @@ void KASADevice::SendCommand(const char *cmd)
             Serial.printf("\r\n Error while sending data %d", errno);
         }
     }
+    Serial.print("sent command to");
+    Serial.println(this->alias);
     vTaskDelay(10 / portTICK_PERIOD_MS); // Make sure the data has been send out before close the socket.
     CloseSock();
     xSemaphoreGive(mutex);
@@ -434,7 +473,6 @@ int KASADevice::Query(const char*cmd, char *buffer, int bufferLength, long timeo
     err = 0;
     OpenSock();
     sendLen = KASAUtil::Encrypt(cmd, strlen(cmd), 1, buffer);
-    
     //If sock is able to connect
     if(sock > 0){
         err = send(sock, buffer, sendLen, 0);
@@ -490,13 +528,6 @@ void KASASmartBulb::turnOff(){
     SendCommand(KASAUtil::light_off);
 }
 
-void KASASmartBulb::setBrightness(brightness){
-    std::string brightness_str = std::to_string(brightness);
-
-    char* request[] = KASAUtil::set_brightness + brightness_str + KASAUtil::query_end;
-    SendCommand(request);
-}
-
 void KASASmartBulb::toggle(){
     if(state == 0){
         Serial.println("Toggling On");
@@ -512,8 +543,8 @@ int KASASmartBulb::GetDeviceInfo(){
     int recvLen = Query(KASAUtil::get_kasa_info, buffer, 2048, 300000);
     if(recvLen > 500){
         xSemaphoreTake(mutex, portMAX_DELAY);
-        DeserializationError error = deserializeJson(doc, buffer, recvLen);
 
+        DeserializationError error = deserializeJson(doc, buffer, recvLen);
         if(error){
             Serial.print("deserializeJson() failed: ");
             Serial.println(error.c_str());
