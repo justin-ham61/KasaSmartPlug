@@ -110,7 +110,6 @@ class KASADevice{
     int state;
     int err_code;
 
-
     void SendCommand(const char *cmd);
 
     void UpdateIPAddress(const char *ip){
@@ -140,10 +139,10 @@ class KASASmartBulb: public KASADevice{
     int brightness;
     int temp;
     int GetDeviceInfo();
-
     void turnOn();
     void turnOff();
     void toggle();
+    void setBrightness(const int brightness);
 
     KASASmartBulb(const char *name, const char *ip, int brightness, int temp)
         :KASADevice(name, ip), brightness(brightness), temp(temp){}
@@ -202,6 +201,7 @@ public:
     void CreateAndDeliver(const char *ip, const int req, const char *type);
     bool CreateDevice(const char *alias, const char *ip, const char *type);
     void ToggleAll(const int state);
+    void SetBrightnessAll(const int brightness);
     KASADevice *GetSmartPlug(const char *alias_name);
     KASADevice *GetSmartPlugByIndex(int index);
     KASAUtil();

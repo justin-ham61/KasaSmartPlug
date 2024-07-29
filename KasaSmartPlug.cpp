@@ -340,15 +340,23 @@ bool KASAUtil::CreateDevice(const char *alias, const char *ip, const char *type)
 void KASAUtil::ToggleAll(const int state){
     Serial.println(deviceFound);
     for(int i = 0; i < deviceFound; i++){
-        Serial.println(i);
         KASADevice* dev = ptr_plugs[i];
         KASASmartBulb* bulb = static_cast<KASASmartBulb*>(dev);
+        Serial.print("Toggling: ");
         Serial.println(bulb->alias);
         if(state == 0){
             bulb->turnOn(); 
         } else {
             bulb->turnOff();
         }
+    }
+}
+
+void KASAUtil::SetBrightnessAll(const int brightness){
+    for(int i = 0; i < deviceFound; i++){
+        KASADevice* dev = ptr_plugs[i];
+        KASASmartBulb* bulb = static_cast<KASASmartBulb*>(dev);
+        bulb->setBrightness(brightness);
     }
 }
 
@@ -394,8 +402,6 @@ void KASADevice::SendCommand(const char *cmd)
             Serial.printf("\r\n Error while sending data %d", errno);
         }
     }
-    Serial.print("sent command to");
-    Serial.println(this->alias);
     vTaskDelay(10 / portTICK_PERIOD_MS); // Make sure the data has been send out before close the socket.
     CloseSock();
     xSemaphoreGive(mutex);
@@ -521,11 +527,26 @@ int KASADevice::Query(const char*cmd, char *buffer, int bufferLength, long timeo
 
 //Bulb Definitions
 void KASASmartBulb::turnOn(){
+    this->state = 1;
     SendCommand(KASAUtil::light_on);
 }
 
 void KASASmartBulb::turnOff(){
+    this->state = 0;
     SendCommand(KASAUtil::light_off);
+}
+
+void KASASmartBulb::setBrightness(const int brightness){
+    this->brightness = brightness;
+    char brightness_str[3];
+    snprintf(brightness_str, sizeof(brightness_str), "%d", brightness);
+    size_t length = strlen(KASAUtil::set_brightness) + strlen(brightness_str) + strlen(KASAUtil::query_end) + 1;
+    char* result = new char[length];
+    strcpy(result, KASAUtil::set_brightness);
+    strcat(result, brightness_str);
+    strcat(result, KASAUtil::query_end);
+
+    SendCommand(result);
 }
 
 void KASASmartBulb::toggle(){
