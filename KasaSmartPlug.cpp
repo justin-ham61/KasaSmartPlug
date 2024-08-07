@@ -70,14 +70,13 @@ KASAUtil::KASAUtil()
     deviceFound = 0;
 }
 
-int KASAUtil::ScanDevices(int timeoutMs)
+int KASAUtil::ScanDevicesAndAdd(int timeoutMs, char* arr[], const int size)
 {
     struct sockaddr_in dest_addr;
     int ret = 0;
     int boardCaseEnable = 1;
     int retValue = 0;
     int sock;
-
     int err = 1;
     char sendbuf[128];
     char addrbuf[32] = {0};
@@ -92,15 +91,6 @@ int KASAUtil::ScanDevices(int timeoutMs)
     dest_addr.sin_addr.s_addr = inet_addr("255.255.255.255");
     dest_addr.sin_family = AF_INET;
     dest_addr.sin_port = htons(9999);
-    //Clean up the previous resource
-    if(deviceFound > 0)
-    {
-        for(int i =0;i<deviceFound;i++)
-        {
-            delete(ptr_plugs[i]);
-        }
-    }
-    deviceFound = 0; //Reset all device..
     
 
     sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
@@ -220,7 +210,12 @@ int KASAUtil::ScanDevices(int timeoutMs)
                         string_value = get_sysinfo["alias"];
                         model = get_sysinfo["model"];                    
                         // Limit the number of devices and make sure no duplicate device.
-                        if (IsContainPlug(string_value) == -1){
+
+                        if (IsContainPlug(string_value) == -1 && IsInArray(string_value, arr, size)){
+                            Serial.println(IsContainPlug(string_value));
+                            Serial.print("Found and adding: ");
+                            Serial.println(string_value);
+
                             // New device has been found
                             if (deviceFound < MAX_PLUG_ALLOW) {
                                 //Case if the model is a smart plug "ES", "HS", "KP"
@@ -246,7 +241,10 @@ int KASAUtil::ScanDevices(int timeoutMs)
                             //Plug is already in the collection then update IP Address..
                             KASADevice *device = KASAUtil::GetSmartPlug(string_value);
                             if(device != NULL){
+                                Serial.print("Updating IP: ");
+                                Serial.println(device->alias);
                                 device->UpdateIPAddress(raddr_name);
+                                device->err_code = 0;
                             }
                         }
                     
@@ -338,7 +336,6 @@ bool KASAUtil::CreateDevice(const char *alias, const char *ip, const char *type)
 }
 
 void KASAUtil::ToggleAll(const int state){
-    Serial.println(deviceFound);
     for(int i = 0; i < deviceFound; i++){
         KASADevice* dev = ptr_plugs[i];
         KASASmartBulb* bulb = static_cast<KASASmartBulb*>(dev);

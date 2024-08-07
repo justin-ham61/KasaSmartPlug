@@ -47,30 +47,31 @@ class KASADevice{
     bool OpenSock(){
         int err;
         sock = socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
-
         fd_set fdset;
         struct timeval tv;
         int arg;
 
         if(sock < 0){
-            Serial.println("Error: Failed to open a socket for Device");
+            Serial.println("Error: Failed to open a socket for Device (CODE: 1)");
             return false;
         }
-
         arg = fcntl(sock, F_GETFL, NULL);
         arg |= O_NONBLOCK;
-
         fcntl(sock, F_SETFL, O_NONBLOCK);
-
         err = connect(sock, (struct sockaddr *)&dest_addr, sizeof(dest_addr));
         if(err < 0){
-            do{
+            do{ 
                 tv.tv_sec = 1;
                 tv.tv_usec = 0;
                 FD_ZERO(&fdset);
                 FD_SET(sock, &fdset);
 
                 err = select(sock + 1, NULL, &fdset, NULL, &tv);
+                //Immediately exist the loop and close socket with err = 0
+                if(err == 0){
+                    Serial.println("Failed to open socket in do while loop");
+                    break;
+                }
                 if(err < 0 && errno != EINTR){
                     Serial.println("Unable to open socket");
                     break;
@@ -80,6 +81,7 @@ class KASADevice{
                     socklen_t len = sizeof so_error;
                     getsockopt(sock, SOL_SOCKET, SO_ERROR, &so_error, &len);
                     if (so_error == 0){
+                        err_code = 0;
                         fcntl(sock, F_SETFL, arg);
                         return true;
                     } else {
@@ -88,7 +90,8 @@ class KASADevice{
                 }
             } while(1);
         }
-        Serial.println("Error: Failed to open socket for Device");
+        Serial.println("Error: Failed to open socket for Devic (CODE: 2)");
+        err_code = 1;
         CloseSock();
         return false;
     }
@@ -119,7 +122,6 @@ class KASADevice{
         dest_addr.sin_family = AF_INET;
         dest_addr.sin_port = htons(9999);
     }
-
     KASADevice(const char *name , const char *ip){
         strcpy(alias, name);
         UpdateIPAddress(ip);
@@ -158,7 +160,6 @@ class KASASmartPlug: public KASADevice{
     void DebugBufferPrint(char *data, int length);
 
     public:
-
     int QueryInfo();
     void SetRelayState(uint8_t state);
 
@@ -183,6 +184,17 @@ class KASAUtil {
     {
         return strncmp(prefix, model, strlen(prefix)) == 0;
     }
+
+    bool IsInArray(const char *target, char* arr[], int size)
+    {
+        for(int i = 0; i < size; i++){
+            if(strcmp(target,arr[i]) == 0){
+                return true;
+            }
+        }
+        return false;
+    }
+
     int deviceFound;
 
 public:
@@ -195,7 +207,7 @@ public:
     static const char* set_temperature;
     static const char* query_end;
 
-    int ScanDevices(int timeoutMs = 1000); // Wait at least xxx ms after received UDP packages..
+    int ScanDevicesAndAdd(int timeoutMs, char* arr[], const int size);
     static uint16_t Encrypt(const char *data, int length, uint8_t addLengthByte, char *encryped_data);
     static uint16_t Decrypt(char *data, int length, char *decryped_data, int startIndex);
     void CreateAndDeliver(const char *ip, const int req, const char *type);
